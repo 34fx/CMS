@@ -1,0 +1,959 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000000000000000000000000000000000000..5b6bd481353dd4faa4eb9c81897085cd43ae634a
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,9 @@
++# Android/Gradle
++/.gradle/
++/local.properties
++/.idea/
++.DS_Store
++/build/
++app/build/
++/captures/
++*.iml
+diff --git a/README.md b/README.md
+index 5afa791922e50f619e10a67b2f6a2065b8f8f822..36f5b679e9c152c49320506270699206af84e868 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,18 @@
+-"# CMS" 
++# CMS Master Controller
++
++Această repo conține scheletul aplicației "master" pentru infrastructura Android RK3566. Aplicația este gândită să funcționeze fără interfață grafică, să rămână activă permanent și să se conecteze la un server de comandă local minimal.
++
++## Structură
++
++- `app/` – modulul Android scris în Kotlin.
++  - `service/` – servicii foreground persistente folosite pentru a menține aplicația activă.
++  - `orchestration/` – coordonatorul comenzilor și gestiunea aplicațiilor slave.
++  - `server/` – clientul HTTP minimalist care comunică cu serverul local.
++  - `model/` – reprezentarea comenzilor și a rezultatelor aferente.
++
++## Next steps
++
++1. Implementarea unui server local minimal pentru testarea comunicării.
++2. Extinderea mecanismelor de instalare/dezinstalare pentru a folosi privilegii root și a gestiona erorile de nivel industrial.
++3. Adăugarea unui subsistem de securitate (autentificare, semnături, integritate comenzi).
++4. Teste instrumentate pentru fluxuri critice.
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7530ee2923ea8ca733226e59c8ec00d77e953016
+--- /dev/null
++++ b/app/build.gradle.kts
+@@ -0,0 +1,59 @@
++plugins {
++    id("com.android.application")
++    kotlin("android")
++}
++
++android {
++    namespace = "com.example.mastercontrol"
++    compileSdk = 34
++
++    defaultConfig {
++        applicationId = "com.example.mastercontrol"
++        minSdk = 26
++        targetSdk = 34
++        versionCode = 1
++        versionName = "0.1.0"
++
++        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
++    }
++
++    buildTypes {
++        getByName("release") {
++            isMinifyEnabled = false
++            proguardFiles(
++                getDefaultProguardFile("proguard-android-optimize.txt"),
++                "proguard-rules.pro"
++            )
++        }
++        create("staging") {
++            initWith(getByName("debug"))
++            matchingFallbacks += listOf("debug")
++        }
++    }
++
++    compileOptions {
++        sourceCompatibility = JavaVersion.VERSION_17
++        targetCompatibility = JavaVersion.VERSION_17
++    }
++
++    kotlinOptions {
++        jvmTarget = "17"
++    }
++
++    packaging {
++        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
++    }
++}
++
++dependencies {
++    implementation("androidx.core:core-ktx:1.12.0")
++    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
++    implementation("androidx.lifecycle:lifecycle-process:2.6.2")
++    implementation("androidx.work:work-runtime-ktx:2.9.0")
++    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
++    implementation("com.squareup.okhttp3:okhttp:4.12.0")
++
++    testImplementation("junit:junit:4.13.2")
++    androidTestImplementation("androidx.test.ext:junit:1.1.5")
++    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
++}
+diff --git a/app/proguard-rules.pro b/app/proguard-rules.pro
+new file mode 100644
+index 0000000000000000000000000000000000000000..70dae51f83bdc61f426081f09678bfe0f1be5ba1
+--- /dev/null
++++ b/app/proguard-rules.pro
+@@ -0,0 +1 @@
++# Placeholder for future rules. Keeping empty to maintain release build parity.
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..2dcdb053274378d2141dd31fd2558ee1efab307b
+--- /dev/null
++++ b/app/src/main/AndroidManifest.xml
+@@ -0,0 +1,39 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++
++    <application
++        android:name=".MasterApplication"
++        android:allowBackup="false"
++        android:debuggable="true"
++        android:fullBackupContent="@xml/empty_backup"
++        android:icon="@android:drawable/stat_sys_download_done"
++        android:label="@string/app_name"
++        android:supportsRtl="true"
++        android:theme="@android:style/Theme.DeviceDefault">
++
++        <service
++            android:name=".service.MasterService"
++            android:enabled="true"
++            android:exported="false"
++            android:foregroundServiceType="dataSync"
++            android:isolatedProcess="false" />
++
++        <receiver
++            android:name=".service.BootCompletedReceiver"
++            android:enabled="true"
++            android:exported="true"
++            android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
++            <intent-filter>
++                <action android:name="android.intent.action.BOOT_COMPLETED" />
++                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
++            </intent-filter>
++        </receiver>
++
++    </application>
++
++    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
++    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
++    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
++    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
++
++</manifest>
+diff --git a/app/src/main/java/com/example/mastercontrol/MasterApplication.kt b/app/src/main/java/com/example/mastercontrol/MasterApplication.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..a61b503aab7502e1c8c61e1bede0d5969f670890
+--- /dev/null
++++ b/app/src/main/java/com/example/mastercontrol/MasterApplication.kt
+@@ -0,0 +1,23 @@
++package com.example.mastercontrol
++
++import android.app.Application
++import androidx.lifecycle.ProcessLifecycleOwner
++import com.example.mastercontrol.orchestration.CommandOrchestrator
++import com.example.mastercontrol.server.CommandClient
++
++class MasterApplication : Application() {
++
++    lateinit var orchestrator: CommandOrchestrator
++        private set
++
++    override fun onCreate() {
++        super.onCreate()
++        val commandClient = CommandClient(context = this)
++        orchestrator = CommandOrchestrator(
++            context = this,
++            commandClient = commandClient,
++            lifecycle = ProcessLifecycleOwner.get().lifecycle
++        )
++        orchestrator.initialize()
++    }
++}
+diff --git a/app/src/main/java/com/example/mastercontrol/model/CommandEnvelope.kt b/app/src/main/java/com/example/mastercontrol/model/CommandEnvelope.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..33d195bba863c334a2724d6a4f90037f98c4cf10
+--- /dev/null
++++ b/app/src/main/java/com/example/mastercontrol/model/CommandEnvelope.kt
+@@ -0,0 +1,54 @@
++package com.example.mastercontrol.model
++
++import org.json.JSONObject
++
++data class CommandEnvelope(
++    val id: String,
++    val command: Command
++) {
++
++    sealed class Command {
++        data class Install(
++            val id: String,
++            val packageName: String,
++            val sourcePath: String,
++            val displayName: String
++        ) : Command()
++
++        data class Uninstall(val id: String, val packageName: String) : Command()
++        data class Start(val id: String, val packageName: String) : Command()
++        data class Stop(val id: String, val packageName: String) : Command()
++        data class Update(val id: String, val packageName: String, val sourcePath: String, val displayName: String, val versionCode: Long) : Command()
++        data class HealthCheck(val id: String) : Command()
++    }
++
++    companion object {
++        fun deserialize(payload: String): CommandEnvelope {
++            val json = JSONObject(payload)
++            val id = json.getString("id")
++            val type = json.getString("type")
++            val body = json.optJSONObject("body") ?: JSONObject()
++            val command = when (type) {
++                "install" -> Command.Install(
++                    id = id,
++                    packageName = body.getString("package"),
++                    sourcePath = body.getString("source"),
++                    displayName = body.optString("name", body.getString("package"))
++                )
++                "uninstall" -> Command.Uninstall(id, body.getString("package"))
++                "start" -> Command.Start(id, body.getString("package"))
++                "stop" -> Command.Stop(id, body.getString("package"))
++                "update" -> Command.Update(
++                    id = id,
++                    packageName = body.getString("package"),
++                    sourcePath = body.getString("source"),
++                    displayName = body.optString("name", body.getString("package")),
++                    versionCode = body.optLong("version", 0L)
++                )
++                "health" -> Command.HealthCheck(id)
++                else -> throw IllegalArgumentException("Unsupported command type: $type")
++            }
++            return CommandEnvelope(id, command)
++        }
++    }
++}
+diff --git a/app/src/main/java/com/example/mastercontrol/model/CommandResult.kt b/app/src/main/java/com/example/mastercontrol/model/CommandResult.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..8fda321311f2bb820c2d82f0008e70f313228c1e
+--- /dev/null
++++ b/app/src/main/java/com/example/mastercontrol/model/CommandResult.kt
+@@ -0,0 +1,19 @@
++package com.example.mastercontrol.model
++
++import org.json.JSONObject
++
++sealed class CommandResult(open val id: String) {
++    data class Success(override val id: String, val message: String) : CommandResult(id)
++    data class Error(override val id: String, val error: String) : CommandResult(id)
++
++    fun serialize(): String {
++        val json = JSONObject()
++        json.put("id", id)
++        json.put("status", if (this is Success) "success" else "error")
++        when (this) {
++            is Success -> json.put("message", message)
++            is Error -> json.put("message", error)
++        }
++        return json.toString()
++    }
++}
+diff --git a/app/src/main/java/com/example/mastercontrol/orchestration/CommandOrchestrator.kt b/app/src/main/java/com/example/mastercontrol/orchestration/CommandOrchestrator.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..1d57e74e7b45f6b3ae40f593f60e15a792716985
+--- /dev/null
++++ b/app/src/main/java/com/example/mastercontrol/orchestration/CommandOrchestrator.kt
+@@ -0,0 +1,68 @@
++package com.example.mastercontrol.orchestration
++
++import android.content.Context
++import androidx.lifecycle.DefaultLifecycleObserver
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.LifecycleOwner
++import com.example.mastercontrol.model.CommandEnvelope
++import com.example.mastercontrol.model.CommandResult
++import com.example.mastercontrol.server.CommandClient
++import com.example.mastercontrol.service.MasterService
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.cancel
++import kotlinx.coroutines.flow.collectLatest
++import kotlinx.coroutines.launch
++
++class CommandOrchestrator(
++    private val context: Context,
++    private val commandClient: CommandClient,
++    private val lifecycle: Lifecycle
++) : DefaultLifecycleObserver {
++
++    private var pollingJob: Job? = null
++    private var lifecycleScope: CoroutineScope? = null
++
++    fun initialize() {
++        lifecycle.addObserver(this)
++        MasterService.start(context)
++    }
++
++    fun bindServiceScope() {
++        lifecycleScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
++        pollingJob = lifecycleScope?.launch {
++            commandClient.commandStream().collectLatest { envelope ->
++                val result = processCommand(envelope)
++                commandClient.reportResult(result)
++            }
++        }
++    }
++
++    fun unbindServiceScope() {
++        pollingJob?.cancel()
++        lifecycleScope?.cancel()
++        pollingJob = null
++        lifecycleScope = null
++    }
++
++    override fun onStart(owner: LifecycleOwner) {
++        MasterService.start(context)
++    }
++
++    override fun onStop(owner: LifecycleOwner) {
++        // No-op, service keeps process alive.
++    }
++
++    private suspend fun processCommand(envelope: CommandEnvelope): CommandResult {
++        return when (val command = envelope.command) {
++            is CommandEnvelope.Command.Install -> SlaveAppManager.install(context, command)
++            is CommandEnvelope.Command.Uninstall -> SlaveAppManager.uninstall(context, command)
++            is CommandEnvelope.Command.Start -> SlaveAppManager.start(context, command)
++            is CommandEnvelope.Command.Stop -> SlaveAppManager.stop(context, command)
++            is CommandEnvelope.Command.Update -> SlaveAppManager.update(context, command)
++            is CommandEnvelope.Command.HealthCheck -> CommandResult.Success(envelope.id, "ok")
++        }
++    }
++}
+diff --git a/app/src/main/java/com/example/mastercontrol/orchestration/SlaveAppManager.kt b/app/src/main/java/com/example/mastercontrol/orchestration/SlaveAppManager.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..5d25cf75f45b521db02a8debe05f0b90bcbbc85f
+--- /dev/null
++++ b/app/src/main/java/com/example/mastercontrol/orchestration/SlaveAppManager.kt
+@@ -0,0 +1,110 @@
++package com.example.mastercontrol.orchestration
++
++import android.app.ActivityManager
++import android.content.Context
++import android.content.Intent
++import android.content.pm.PackageInstaller
++import android.net.Uri
++import androidx.core.content.getSystemService
++import androidx.core.content.pm.PackageInfoCompat
++import com.example.mastercontrol.model.CommandEnvelope
++import com.example.mastercontrol.model.CommandResult
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import java.io.File
++
++object SlaveAppManager {
++
++    suspend fun install(context: Context, command: CommandEnvelope.Command.Install): CommandResult =
++        withContext(Dispatchers.IO) {
++            runCatching {
++                val installer = context.packageManager.packageInstaller
++                val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
++                    setAppLabel(command.displayName)
++                    setAppPackageName(command.packageName)
++                }
++                val sessionId = installer.createSession(params)
++                installer.openSession(sessionId).use { session ->
++                    val apkFile = File(command.sourcePath)
++                    require(apkFile.exists()) { "APK missing: ${command.sourcePath}" }
++                    apkFile.inputStream().use { input ->
++                        session.openWrite("base", 0, apkFile.length()).use { output ->
++                            input.copyTo(output)
++                            session.fsync(output)
++                        }
++                    }
++                    session.commit(createStatusIntent(context, command.packageName))
++                }
++                CommandResult.Success(command.id, "Install requested")
++            }.getOrElse { throwable ->
++                CommandResult.Error(command.id, throwable.message ?: "Install failed")
++            }
++        }
++
++    suspend fun uninstall(context: Context, command: CommandEnvelope.Command.Uninstall): CommandResult =
++        withContext(Dispatchers.IO) {
++            runCatching {
++                context.packageManager.packageInstaller.uninstall(
++                    command.packageName,
++                    createStatusIntent(context, command.packageName)
++                )
++                CommandResult.Success(command.id, "Uninstall requested")
++            }.getOrElse { throwable ->
++                CommandResult.Error(command.id, throwable.message ?: "Uninstall failed")
++            }
++        }
++
++    suspend fun start(context: Context, command: CommandEnvelope.Command.Start): CommandResult =
++        withContext(Dispatchers.IO) {
++            runCatching {
++                val launchIntent = context.packageManager.getLaunchIntentForPackage(command.packageName)
++                    ?: error("Launch intent missing")
++                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
++                context.startActivity(launchIntent)
++                CommandResult.Success(command.id, "Start requested")
++            }.getOrElse { throwable ->
++                CommandResult.Error(command.id, throwable.message ?: "Start failed")
++            }
++        }
++
++    suspend fun stop(context: Context, command: CommandEnvelope.Command.Stop): CommandResult =
++        withContext(Dispatchers.IO) {
++            runCatching {
++                val activityManager = context.getSystemService<ActivityManager>()
++                    ?: error("ActivityManager unavailable")
++                activityManager.forceStopPackage(command.packageName)
++                CommandResult.Success(command.id, "Stop requested")
++            }.getOrElse { throwable ->
++                CommandResult.Error(command.id, throwable.message ?: "Stop failed")
++            }
++        }
++
++    suspend fun update(context: Context, command: CommandEnvelope.Command.Update): CommandResult =
++        withContext(Dispatchers.IO) {
++            val currentVersion = runCatching {
++                val info = context.packageManager.getPackageInfo(command.packageName, 0)
++                PackageInfoCompat.getLongVersionCode(info)
++            }.getOrDefault(-1)
++
++            if (currentVersion >= command.versionCode && currentVersion != -1L) {
++                CommandResult.Success(command.id, "Already up to date")
++            } else {
++                install(
++                    context,
++                    CommandEnvelope.Command.Install(
++                        id = command.id,
++                        packageName = command.packageName,
++                        sourcePath = command.sourcePath,
++                        displayName = command.displayName
++                    )
++                )
++            }
++        }
++
++    private fun createStatusIntent(context: Context, packageName: String): Intent {
++        return Intent("com.example.mastercontrol.PACKAGE_STATUS").apply {
++            setPackage(context.packageName)
++            data = Uri.parse("package:$packageName")
++        }
++    }
++}
+diff --git a/app/src/main/java/com/example/mastercontrol/server/CommandClient.kt b/app/src/main/java/com/example/mastercontrol/server/CommandClient.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..f7f6e11d862a63ad1d5905f9976e72665cf616fd
+--- /dev/null
++++ b/app/src/main/java/com/example/mastercontrol/server/CommandClient.kt
+@@ -0,0 +1,73 @@
++package com.example.mastercontrol.server
++
++import android.content.Context
++import android.util.Log
++import com.example.mastercontrol.model.CommandEnvelope
++import com.example.mastercontrol.model.CommandResult
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.flow
++import okhttp3.MediaType.Companion.toMediaType
++import okhttp3.OkHttpClient
++import okhttp3.Request
++import okhttp3.RequestBody.Companion.toRequestBody
++
++class CommandClient(
++    private val context: Context,
++    private val httpClient: OkHttpClient = OkHttpClient()
++) {
++
++    fun commandStream(): Flow<CommandEnvelope> = flow {
++        while (true) {
++            try {
++                val envelope = pollServer()
++                if (envelope != null) {
++                    emit(envelope)
++                }
++            } catch (t: Throwable) {
++                Log.e(TAG, "Polling failure", t)
++            }
++            delay(POLL_INTERVAL_MS)
++        }
++    }
++
++    suspend fun reportResult(result: CommandResult) {
++        try {
++            val request = Request.Builder()
++                .url("http://127.0.0.1:8080/results")
++                .post(result.serialize().toRequestBody(JSON_MEDIA_TYPE))
++                .build()
++            httpClient.newCall(request).execute().use { response ->
++                if (!response.isSuccessful) {
++                    Log.w(TAG, "Failed to report result: ${response.code}")
++                }
++            }
++        } catch (t: Throwable) {
++            Log.e(TAG, "Reporting failure", t)
++        }
++    }
++
++    private fun pollServer(): CommandEnvelope? {
++        val request = Request.Builder()
++            .url("http://127.0.0.1:8080/commands")
++            .get()
++            .build()
++        httpClient.newCall(request).execute().use { response ->
++            if (!response.isSuccessful) {
++                Log.w(TAG, "Command poll failed: ${response.code}")
++                return null
++            }
++            val body = response.body?.string().orEmpty()
++            if (body.isBlank()) return null
++            return runCatching { CommandEnvelope.deserialize(body) }
++                .onFailure { Log.e(TAG, "Invalid command payload", it) }
++                .getOrNull()
++        }
++    }
++
++    companion object {
++        private const val TAG = "CommandClient"
++        private const val POLL_INTERVAL_MS = 5_000L
++        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
++    }
++}
+diff --git a/app/src/main/java/com/example/mastercontrol/service/BootCompletedReceiver.kt b/app/src/main/java/com/example/mastercontrol/service/BootCompletedReceiver.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..c87583ad948e2c2ac8e87e99035106c8f9255f15
+--- /dev/null
++++ b/app/src/main/java/com/example/mastercontrol/service/BootCompletedReceiver.kt
+@@ -0,0 +1,11 @@
++package com.example.mastercontrol.service
++
++import android.content.BroadcastReceiver
++import android.content.Context
++import android.content.Intent
++
++class BootCompletedReceiver : BroadcastReceiver() {
++    override fun onReceive(context: Context, intent: Intent) {
++        MasterService.start(context.applicationContext)
++    }
++}
+diff --git a/app/src/main/java/com/example/mastercontrol/service/MasterService.kt b/app/src/main/java/com/example/mastercontrol/service/MasterService.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..9e709d5ea78fa74f458af545297e0658de5102ed
+--- /dev/null
++++ b/app/src/main/java/com/example/mastercontrol/service/MasterService.kt
+@@ -0,0 +1,81 @@
++package com.example.mastercontrol.service
++
++import android.app.Notification
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.app.Service
++import android.content.Context
++import android.content.Intent
++import android.os.Build
++import android.os.IBinder
++import androidx.core.app.NotificationCompat
++import com.example.mastercontrol.MasterApplication
++import com.example.mastercontrol.R
++
++class MasterService : Service() {
++
++    override fun onCreate() {
++        super.onCreate()
++        createNotificationChannel()
++        val notification = buildNotification()
++        startForeground(NOTIFICATION_ID, notification)
++
++        (application as? MasterApplication)?.orchestrator?.bindServiceScope()
++    }
++
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        return START_STICKY
++    }
++
++    override fun onBind(intent: Intent?): IBinder? = null
++
++    override fun onDestroy() {
++        (application as? MasterApplication)?.orchestrator?.unbindServiceScope()
++        stopForeground(STOP_FOREGROUND_REMOVE)
++        super.onDestroy()
++    }
++
++    private fun buildNotification(): Notification {
++        return NotificationCompat.Builder(this, CHANNEL_ID)
++            .setContentTitle(getString(R.string.notification_title))
++            .setContentText(getString(R.string.notification_text))
++            .setSmallIcon(android.R.drawable.stat_sys_download_done)
++            .setOngoing(true)
++            .setPriority(NotificationCompat.PRIORITY_MIN)
++            .setSilent(true)
++            .build()
++    }
++
++    private fun createNotificationChannel() {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
++            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
++                val channel = NotificationChannel(
++                    CHANNEL_ID,
++                    getString(R.string.notification_channel_name),
++                    NotificationManager.IMPORTANCE_MIN
++                ).apply {
++                    description = getString(R.string.notification_channel_description)
++                    setShowBadge(false)
++                    enableVibration(false)
++                    enableLights(false)
++                }
++                manager.createNotificationChannel(channel)
++            }
++        }
++    }
++
++    companion object {
++        private const val CHANNEL_ID = "master_control_channel"
++        private const val NOTIFICATION_ID = 101
++
++        fun start(context: Context) {
++            val intent = Intent(context, MasterService::class.java)
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++                context.startForegroundService(intent)
++            } else {
++                context.startService(intent)
++            }
++        }
++    }
++}
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..77c5656d56a42f5d8e59c32392e4db009552f5ae
+--- /dev/null
++++ b/app/src/main/res/values/strings.xml
+@@ -0,0 +1,7 @@
++<resources>
++    <string name="app_name">MasterControl</string>
++    <string name="notification_channel_name">Master Control Channel</string>
++    <string name="notification_channel_description">Persistent channel used to keep the master controller active.</string>
++    <string name="notification_title">Master controller activ</string>
++    <string name="notification_text">Aplicația monitorizează dispozitivul și serverul de comandă.</string>
++</resources>
+diff --git a/app/src/main/res/xml/empty_backup.xml b/app/src/main/res/xml/empty_backup.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..1b0854f7d2c01728e988702c4bfbd0d1060b7e7f
+--- /dev/null
++++ b/app/src/main/res/xml/empty_backup.xml
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<full-backup-content />
+diff --git a/build.gradle.kts b/build.gradle.kts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6e1dd35edef8463255e4841667c709fae6f22d71
+--- /dev/null
++++ b/build.gradle.kts
+@@ -0,0 +1,8 @@
++plugins {
++    id("com.android.application") version "8.2.2" apply false
++    kotlin("android") version "1.9.22" apply false
++}
++
++tasks.register("clean", Delete::class) {
++    delete(rootProject.buildDir)
++}
+diff --git a/gradle.properties b/gradle.properties
+new file mode 100644
+index 0000000000000000000000000000000000000000..7834eb54988c17b5e22c29a93424c79f64881bfe
+--- /dev/null
++++ b/gradle.properties
+@@ -0,0 +1,4 @@
++org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
++android.useAndroidX=true
++android.enableJetifier=false
++kotlin.code.style=official
+HcmV?d00001
+
+diff --git a/gradle/wrapper/gradle-wrapper.properties b/gradle/wrapper/gradle-wrapper.properties
+new file mode 100644
+index 0000000000000000000000000000000000000000..9f4197d5f4b9fdf163daa4fe7f17423f8aac7aca
+--- /dev/null
++++ b/gradle/wrapper/gradle-wrapper.properties
+@@ -0,0 +1,7 @@
++distributionBase=GRADLE_USER_HOME
++distributionPath=wrapper/dists
++distributionUrl=https\://services.gradle.org/distributions/gradle-8.2.1-bin.zip
++networkTimeout=10000
++validateDistributionUrl=true
++zipStoreBase=GRADLE_USER_HOME
++zipStorePath=wrapper/dists
+diff --git a/gradlew b/gradlew
+new file mode 100755
+index 0000000000000000000000000000000000000000..001fe5d61f723888d9c8bbd079227e3302e01406
+--- /dev/null
++++ b/gradlew
+@@ -0,0 +1,139 @@
++#!/bin/sh
++
++#
++# Copyright 2015 the original authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#      https://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++#
++##############################################################################
++##
++##  Gradle start up script for POSIX generated by Gradle.
++##
++##############################################################################
++
++# Attempt to set APP_HOME
++# Resolve links: $0 may be a link
++PRG="$0"
++# Need this for relative symlinks.
++while [ -h "$PRG" ]; do
++  ls=`ls -ld "$PRG"`
++  link=`expr "$ls" : '.*-> \(.*\)$'`
++  if expr "$link" : '/.*' > /dev/null; then
++    PRG="$link"
++  else
++    PRG=`dirname "$PRG"`"/$link"
++  fi
++done
++SAVED="`pwd`"
++cd "`dirname \"$PRG\"`/" >/dev/null
++APP_HOME="`pwd -P`"
++cd "$SAVED" >/dev/null
++
++APP_NAME="Gradle"
++APP_BASE_NAME=`basename "$0"`
++
++# Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
++DEFAULT_JVM_OPTS="-Xmx64m -Xms64m"
++
++# Use the maximum available, or set MAX_FD != -1 to use that value.
++MAX_FD="maximum"
++
++warn () {
++  echo "$*"
++}
++
++die () {
++  echo
++  echo "$*"
++  echo
++  exit 1
++}
++
++# OS specific support functions.
++#
++# In order to support multiple platforms, this script delegates to functions
++# extracted into os-specific scripts.
++# shellcheck disable=SC2034,SC3043
++cygwin=false
++msys=false
++Darwin=false
++case "`uname`" in
++  CYGWIN* ) cygwin=true ;;
++  MINGW* ) msys=true ;;
++  Darwin* ) Darwin=true ;;
++  MSYS* ) msys=true ;;
++esac
++
++# For Cygwin or MSYS, ensure paths are in UNIX format before anything is touched.
++if [ "$cygwin" = "true" ] || [ "$msys" = "true" ]; then
++  APP_HOME=`cygpath --unix "$APP_HOME"`
++fi
++
++CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
++
++# Determine the Java command to use to start the JVM.
++if [ -n "$JAVA_HOME" ] ; then
++  if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
++    # IBM's JDK on AIX uses strange locations for the executables
++    JAVACMD="$JAVA_HOME/jre/sh/java"
++  else
++    JAVACMD="$JAVA_HOME/bin/java"
++  fi
++  if [ ! -x "$JAVACMD" ] ; then
++    die "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME\n\nPlease set the JAVA_HOME variable in your environment to match the\nlocation of your Java installation."
++  fi
++else
++  JAVACMD="java"
++  which java >/dev/null 2>&1 || die "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.\n\nPlease set the JAVA_HOME variable in your environment to match the\nlocation of your Java installation."
++fi
++
++# Increase the maximum file descriptors if we can.
++if [ "$cygwin" = "false" ] && [ "$Darwin" = "false" ] ; then
++  case "$MAX_FD" in
++    max*)
++      MAX_FD=`ulimit -H -n`
++      if [ $? -ne 0 ] ; then
++        warn "Could not query maximum file descriptor limit"
++        MAX_FD=""
++      fi
++    ;;
++  esac
++  if [ "$MAX_FD" != "" ] ; then
++    ulimit -n $MAX_FD 2>/dev/null || warn "Could not set maximum file descriptor limit to $MAX_FD"
++  fi
++fi
++
++# For Darwin, add the Apple specific Java options.
++if $Darwin ; then
++  if [ "$HOME" = "$PWD" ]; then
++    cd "$APP_HOME"
++  fi
++  if [ -z "$JAVA_OPTS" ]; then
++    JAVA_OPTS="-XstartOnFirstThread"
++  else
++    JAVA_OPTS="-XstartOnFirstThread $JAVA_OPTS"
++  fi
++fi
++
++# Escape application args.
++save () {
++  for i in "$@" ; do
++    printf %s\n "$i" | sed "s/'/'\\''/g"
++  done
++}
++APP_ARGS=`save "$@"`
++
++# Collect all arguments for the java command, following the shell quoting and substitution rules
++eval set -- $DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$APP_ARGS"
++
++exec "$JAVACMD" "$@"
+diff --git a/gradlew.bat b/gradlew.bat
+new file mode 100644
+index 0000000000000000000000000000000000000000..3716660c433af2324abbb6e7a165782e9d1616d2
+--- /dev/null
++++ b/gradlew.bat
+@@ -0,0 +1,96 @@
++@rem
++@rem Copyright 2015 the original authors.
++@rem
++@rem Licensed under the Apache License, Version 2.0 (the "License");
++@rem you may not use this file except in compliance with the License.
++@rem You may obtain a copy of the License at
++@rem
++@rem      https://www.apache.org/licenses/LICENSE-2.0
++@rem
++@rem Unless required by applicable law or agreed to in writing, software
++@rem distributed under the License is distributed on an "AS IS" BASIS,
++@rem WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++@rem See the License for the specific language governing permissions and
++@rem limitations under the License.
++@rem
++
++@if "%DEBUG%"=="" @echo off
++@rem ##########################################################################
++@rem
++@rem  Gradle startup script for Windows
++@rem
++@rem ##########################################################################
++
++@rem Set local scope for the variables with windows NT shell
++if "%OS%"=="Windows_NT" setlocal
++
++set DIRNAME=%~dp0
++if "%DIRNAME%"=="" set DIRNAME=.
++set APP_BASE_NAME=%~n0
++set APP_HOME=%DIRNAME%
++
++@rem Resolve any . or .. in APP_HOME to make it shorter.
++for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
++
++@rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
++set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
++
++@rem Find java.exe
++if defined JAVA_HOME goto findJavaFromJavaHome
++
++set JAVA_EXE=java.exe
++%JAVA_EXE% -version >NUL 2>&1
++if "%ERRORLEVEL%"=="0" goto execute
++
++echo.
++echo ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
++echo.
++echo Please set the JAVA_HOME variable in your environment to match the
++echo location of your Java installation.
++
++goto fail
++
++:findJavaFromJavaHome
++set JAVA_HOME=%JAVA_HOME:"=%
++set JAVA_EXE=%JAVA_HOME%\bin\java.exe
++
++if exist "%JAVA_EXE%" goto execute
++
++echo.
++echo ERROR: JAVA_HOME is set to an invalid directory: %JAVA_HOME%
++echo.
++echo Please set the JAVA_HOME variable in your environment to match the
++echo location of your Java installation.
++
++goto fail
++
++:execute
++set CLASSPATH=%APP_HOME%\gradle\wrapper\gradle-wrapper.jar
++
++set CMD_LINE_ARGS=
++set _SKIP=2
++
++:setupArgs
++if "x%~1"=="x" goto doneSetArgs
++
++set CMD_LINE_ARGS=%CMD_LINE_ARGS% %1
++shift
++
++goto setupArgs
++
++:doneSetArgs
++
++"%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% -classpath "%CLASSPATH%" org.gradle.wrapper.GradleWrapperMain %CMD_LINE_ARGS%
++
++goto end
++
++:fail
++rem Set variable GRADLE_EXIT_CONSOLE if you need the _script_ return code instead of
++rem the _cmd.exe /c_ return code!
++if  not ""=="%GRADLE_EXIT_CONSOLE%" exit 1
++exit /b 1
++
++:end
++if "%OS%"=="Windows_NT" endlocal
++
++:omega
+diff --git a/settings.gradle.kts b/settings.gradle.kts
+new file mode 100644
+index 0000000000000000000000000000000000000000..652c613795eed8ebc0574005020595349280279c
+--- /dev/null
++++ b/settings.gradle.kts
+@@ -0,0 +1,2 @@
++rootProject.name = "CMS"
++include(":app")
+ 

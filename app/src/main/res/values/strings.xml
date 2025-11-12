@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">MasterControl</string>
+    <string name="notification_channel_name">Master Control Channel</string>
+    <string name="notification_channel_description">Persistent channel used to keep the master controller active.</string>
+    <string name="notification_title">Master controller activ</string>
+    <string name="notification_text">Aplicația monitorizează dispozitivul și serverul de comandă.</string>
+</resources>

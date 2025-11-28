@@ -1,7 +1,7 @@
 <resources>
-    <string name="app_name">MasterControl</string>
-    <string name="notification_channel_name">Master Control Channel</string>
-    <string name="notification_channel_description">Persistent channel used to keep the master controller active.</string>
-    <string name="notification_title">Master controller activ</string>
-    <string name="notification_text">Aplicația monitorizează dispozitivul și serverul de comandă.</string>
+    <string name="app_name">CMS Tap</string>
+    <string name="notification_channel_name">Tap Automation</string>
+    <string name="notification_channel_description">Canal persistent pentru automatizarea tap-ului la pornirea Vuse.</string>
+    <string name="notification_title">Serviciu activ</string>
+    <string name="notification_text">Monitorizează com.bat.vuseapp și simulează un tap după lansare.</string>
 </resources>

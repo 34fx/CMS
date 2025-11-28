@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.mastercontrol"
+    namespace = "com.cms.tap"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.mastercontrol"
+        applicationId = "com.cms.tap"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

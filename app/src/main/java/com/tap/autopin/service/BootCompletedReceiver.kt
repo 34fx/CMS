@@ -1,4 +1,4 @@
-package com.cms.tap.service
+package com.tap.autopin.service
 
 import android.content.BroadcastReceiver
 import android.content.Context

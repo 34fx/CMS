@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.cms.tap"
+    namespace = "com.tap.autopin"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.cms.tap"
+        applicationId = "com.tap.autopin"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

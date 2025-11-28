@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">CMS Tap</string>
+    <string name="app_name">Tap AutoPin</string>
     <string name="notification_channel_name">Tap Automation</string>
     <string name="notification_channel_description">Canal persistent pentru automatizarea tap-ului la pornirea Vuse.</string>
     <string name="notification_title">Serviciu activ</string>

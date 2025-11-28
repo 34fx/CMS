@@ -1,6 +1,7 @@
-package com.cms.tap
+package com.tap.autopin
 
 import android.app.Application
+import com.tap.autopin.service.TapService
 
 class TapApplication : Application() {
     override fun onCreate() {

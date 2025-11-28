@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:name=".MasterApplication"
+        android:name=".TapApplication"
         android:allowBackup="false"
         android:debuggable="true"
         android:fullBackupContent="@xml/empty_backup"
@@ -12,7 +12,7 @@
         android:theme="@android:style/Theme.DeviceDefault">
 
         <service
-            android:name=".service.MasterService"
+            android:name=".service.TapService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync"
@@ -33,7 +33,5 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
 
 </manifest>

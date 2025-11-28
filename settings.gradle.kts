@@ -1,2 +1,2 @@
-rootProject.name = "CMS"
+rootProject.name = "TapAutoPin"
 include(":app")
